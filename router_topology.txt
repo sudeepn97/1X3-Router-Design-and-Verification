@@ -1,0 +1,693 @@
+----------------------------------------wr_agt_top-------------------------------------------------
+
+
+___________________________________wr_xtn__________________________________________________________
+
+
+class write_xtn extends uvm_sequence_item;
+    `uvm_object_utils(write_xtn)
+      
+      rand bit [7:0]header;
+      rand  bit [7:0] payload[];
+      bit [7:0]parity;
+      bit busy;
+      
+
+     constraint C1 {header[1:0]!=3;}
+     constraint C2 {payload.size==header[7:2];}
+     constraint C3 {header [7:2]!=0;}
+     
+     extern function new(string name="write_xtn");
+     extern function void do_print(uvm_printer printer);
+     extern function void post_randomize();
+endclass
+
+   function write_xtn::new(string name="write_xtn");
+     super.new(name);
+  endfunction:new
+   
+
+  function void  write_xtn::do_print(uvm_printer printer);
+      super.do_print(printer);
+    //               string_name  bitstream_value  size   radix for printing   
+     printer.print_field("header",this.header,8,UVM_HEX);
+     foreach(payload[i])
+      printer.print_field($sformatf("payload[%0d]",i),this.payload[i],8,UVM_HEX);
+      printer.print_field("parity",this.parity,8,UVM_HEX);
+      printer.print_field("busy",this.busy,'1,UVM_DEC);
+ endfunction:do_print 
+
+
+  function void write_xtn::post_randomize();
+     parity=0^header;
+       foreach(payload[i])
+         parity=payload[i]^parity;
+  endfunction:post_randomize
+
+__________________________________________wr_driver________________________________________________
+
+
+
+class router_wr_driver extends uvm_driver #(write_xtn);
+   `uvm_component_utils(router_wr_driver)
+
+  extern function new(string name="router_wr_driver",uvm_component parent);
+  extern task run_phase(uvm_phase phase);
+endclass
+
+   function router_wr_driver::new(string name="router_wr_driver",uvm_component parent);
+     super.new(name,parent);
+   endfunction
+
+   task router_wr_driver::run_phase(uvm_phase phase);
+      `uvm_info(get_type_name(), "This is  Write_Driver run phase", UVM_MEDIUM)
+   endtask
+
+
+_________________________________________wr_monitor_____________________________________________________
+
+
+class router_wr_monitor extends uvm_monitor;
+   `uvm_component_utils(router_wr_monitor)
+
+  extern function new(string name="router_wr_monitor",uvm_component parent);
+  extern task run_phase(uvm_phase phase);
+endclass
+
+   function router_wr_monitor::new(string name="router_wr_monitor",uvm_component parent);
+     super.new(name,parent);
+   endfunction
+
+   task router_wr_monitor::run_phase(uvm_phase phase);
+      `uvm_info(get_type_name(), "This is  Write_Monitor run phase", UVM_LOW)
+   endtask
+
+
+____________________________________________wr_seqr____________________________________________________
+
+
+class router_wr_sequencer extends uvm_sequencer  #(write_xtn);
+    `uvm_component_utils(router_wr_sequencer)
+   
+     extern function new(string name="router_wr_sequencer",uvm_component parent);
+endclass
+
+
+function router_wr_sequencer::new(string name="router_wr_sequencer",uvm_component parent);
+   super.new(name,parent);
+endfunction
+
+
+________________________________________________wr_agt____________________________________________
+
+
+class router_wr_agent extends uvm_agent;
+      `uvm_component_utils(router_wr_agent)
+
+          router_wr_agent_config m_cfg;
+          router_wr_monitor monh;
+	  router_wr_sequencer seqrh;
+	  router_wr_driver drvh;
+	  
+        extern function new(string name = "router_wr_agent", uvm_component parent = null);
+	extern function void build_phase(uvm_phase phase);
+	extern function void connect_phase(uvm_phase phase);
+endclass
+
+
+  function router_wr_agent::new(string name = "router_wr_agent", 
+                                    uvm_component parent = null);
+	super.new(name, parent);
+  endfunction
+  
+
+  function void router_wr_agent::build_phase(uvm_phase phase);
+	
+	super.build_phase(phase);
+   
+	if(!uvm_config_db#(router_wr_agent_config)::get(this,"","router_wr_agent_config",m_cfg))
+              `uvm_fatal("CONFIG","cannot get() m_cfg from uvm_config_db. Have you set() it?")
+		
+	 monh=router_wr_monitor::type_id::create("monh",this);
+	
+	 if(m_cfg.is_active==UVM_ACTIVE)
+             begin
+               drvh=router_wr_driver::type_id::create("drvh",this);
+               seqrh=router_wr_sequencer::type_id::create("seqrh",this);
+             end		
+  endfunction
+  
+
+   function void router_wr_agent::connect_phase(uvm_phase phase);
+		if(m_cfg.is_active==UVM_ACTIVE)
+		begin
+		drvh.seq_item_port.connect(seqrh.seq_item_export);
+  		end
+   endfunction
+
+__________________________________________________wr_agt_top_______________________________________
+
+
+class router_wr_agt_top extends uvm_env;
+   `uvm_component_utils(router_wr_agt_top)
+     
+     router_wr_agent agnth[];
+  
+    router_env_config m_cfg;
+
+   extern function new(string name="router_wr_agt_top",uvm_component parent);
+   extern function void build_phase(uvm_phase phase);
+   //extern function void end_of_elaboration_phase(uvm_phase phase);
+   //extern task run_phase(uvm_phase phase);
+endclass
+
+  function router_wr_agt_top::new(string name="router_wr_agt_top",uvm_component parent);
+      super.new(name,parent);
+  endfunction
+
+
+ function void router_wr_agt_top::build_phase(uvm_phase phase);
+    super.build_phase(phase);
+     if(!uvm_config_db #(router_env_config)::get(this,"","router_env_config",m_cfg))
+         `uvm_fatal(get_full_name,"in env  have you set it properly?")
+    agnth=new[m_cfg.no_of_write_agent];
+    foreach(agnth[i])
+        begin
+          agnth[i]=router_wr_agent::type_id::create($sformatf("agnth[%0d]",i),this);
+          uvm_config_db #(router_wr_agent_config)::set(this,$sformatf("agnth[%0d]*",i),"router_wr_agent_config",m_cfg.wr_agt_cfg[i]);
+        end
+ endfunction
+
+/*function  void router_wr_agt_top::end_of_elaboration_phase(uvm_phase phase);
+  uvm_top.print_topology;
+endfunction*/
+
+
+/*task router_wr_agt_top::run_phase(uvm_phase phase);
+  uvm_top.print_topology;
+endtask*/
+
+
+___________________________________________________wr_agt_config___________________________________
+
+
+class router_wr_agent_config extends uvm_object;
+   `uvm_object_utils(router_wr_agent_config)
+
+   uvm_active_passive_enum is_active;
+
+   extern function new(string name="router_wr_agent_config");
+endclass
+
+  function router_wr_agent_config::new(string name="router_wr_agent_config");
+    super.new(name);
+  endfunction
+
+
+--------------------------------------------rd_agt_top----------------------------------------------
+
+
+________________________________________________rd_xtn_____________________________________________
+
+
+class read_xtn extends uvm_sequence_item;
+    `uvm_object_utils(read_xtn)
+      
+      bit[7:0]header;
+      bit [7:0] payload[];
+      bit [7:0]parity;
+       rand  bit [5:0]no_of_cycles;
+      
+      constraint C {no_of_cycles inside {[1:25]};}
+     
+     extern function new(string name="write_xtn");
+     extern function void do_print(uvm_printer printer);
+     
+endclass
+
+   function read_xtn::new(string name="write_xtn");
+     super.new(name);
+  endfunction:new
+   
+
+  function void  read_xtn::do_print(uvm_printer printer);
+      super.do_print(printer);
+    //               string_name    bitstream_value   size     radix for printing   
+     printer.print_field("header",    this.header,     8,           UVM_HEX);
+      foreach(payload[i])
+      printer.print_field($sformatf("payload[%0d]",i),  this.payload[i],  8,   UVM_DEC);
+      printer.print_field("parity",   this.parity,     8,          UVM_DEC);
+      printer.print_field("no_of_cycles",  this.no_of_cycles,   6,    UVM_DEC);
+ endfunction:do_print 
+
+
+_________________________________________________rd_driver_________________________________________
+
+
+class router_rd_driver extends uvm_driver #(read_xtn);
+   `uvm_component_utils(router_rd_driver)
+
+  extern function new(string name="router_rd_driver",uvm_component parent);
+  extern task run_phase(uvm_phase phase);
+endclass
+
+   function router_rd_driver::new(string name="router_rd_driver",uvm_component parent);
+     super.new(name,parent);
+   endfunction
+
+   task router_rd_driver::run_phase(uvm_phase phase);
+      `uvm_info(get_type_name(), "This is  Read_Driver run phase", UVM_MEDIUM)
+   endtask
+
+
+_____________________________________________________rd_mon________________________________________
+
+
+class router_rd_monitor extends uvm_monitor;
+   `uvm_component_utils(router_rd_monitor)
+
+  extern function new(string name="router_rd_monitor",uvm_component parent);
+  extern task run_phase(uvm_phase phase);
+endclass
+
+   function router_rd_monitor::new(string name="router_rd_monitor",uvm_component parent);
+     super.new(name,parent);
+   endfunction
+
+   task router_rd_monitor::run_phase(uvm_phase phase);
+      `uvm_info(get_type_name(), "This is  Read_Monitor run phase", UVM_LOW)
+   endtask
+
+_______________________________________________________rd_seqr_____________________________________
+
+
+class router_rd_sequencer extends uvm_sequencer  #(read_xtn);
+    `uvm_component_utils(router_rd_sequencer)
+   
+     extern function new(string name="router_rd_sequencer",uvm_component parent);
+endclass
+
+
+function router_rd_sequencer::new(string name="router_rd_sequencer",uvm_component parent);
+   super.new(name,parent);
+endfunction
+
+
+____________________________________________________rd_agt_________________________________________
+
+
+class router_rd_agent extends uvm_agent;
+      `uvm_component_utils(router_rd_agent)
+         
+          router_rd_monitor monh;
+	  router_rd_sequencer seqrh;
+	  router_rd_driver drvh;
+	  router_rd_agent_config m_cfg;
+
+        extern function new(string name = "router_rd_agent", uvm_component parent = null);
+	extern function void build_phase(uvm_phase phase);
+	extern function void connect_phase(uvm_phase phase);
+endclass
+
+
+  function router_rd_agent::new(string name = "router_rd_agent", 
+                                    uvm_component parent = null);
+	super.new(name, parent);
+  endfunction
+  
+
+  function void router_rd_agent::build_phase(uvm_phase phase);
+	
+	super.build_phase(phase);
+   
+	if(!uvm_config_db#(router_rd_agent_config)::get(this,"","router_rd_agent_config",m_cfg))
+              `uvm_fatal("CONFIG","cannot get() m_cfg from uvm_config_db. Have you set() it?")
+		
+	 monh=router_rd_monitor::type_id::create("monh",this);
+	
+	 if(m_cfg.is_active==UVM_ACTIVE)
+             begin
+               drvh=router_rd_driver::type_id::create("drvh",this);
+               seqrh=router_rd_sequencer::type_id::create("seqrh",this);
+             end		
+  endfunction
+  
+
+   function void router_rd_agent::connect_phase(uvm_phase phase);
+		if(m_cfg.is_active==UVM_ACTIVE)
+		begin
+		drvh.seq_item_port.connect(seqrh.seq_item_export);
+  		end
+   endfunction
+
+
+__________________________________________________rd_agt_top_________________________________________
+
+
+class router_rd_agt_top extends uvm_env;
+   `uvm_component_utils(router_rd_agt_top)
+       //int no_of_rdagents;
+      // int is_active;
+      router_rd_agent agnth[];
+      router_env_config m_cfg;
+      
+      extern function new(string name = "router_rd_agt_top" , uvm_component parent);
+      extern function void build_phase(uvm_phase phase);
+      //extern function void end_of_elaboration(uvm_phase phase);
+     // extern task run_phase(uvm_phase phase);
+	
+endclass
+
+function router_rd_agt_top::new(string name = "router_rd_agt_top" , uvm_component parent);
+	super.new(name,parent);
+endfunction
+
+    
+
+function void router_rd_agt_top::build_phase(uvm_phase phase);
+  if(!uvm_config_db#(router_env_config)::get(this,"","router_env_config",m_cfg))
+     		     `uvm_fatal(get_type_name(),"getting the configuration failed in AGT TOP")
+    super.build_phase(phase);
+    agnth=new[m_cfg.no_of_read_agents];
+           foreach(agnth[i])
+              begin
+                   agnth[i]=router_rd_agent::type_id::create($sformatf("agnth[%0d]",i),this);
+           
+                uvm_config_db #(router_rd_agent_config)::set(this,$sformatf("agnth[%0d]*",i),"router_rd_agent_config",m_cfg.rd_agt_cfg[i]);
+              end
+endfunction
+
+/*function void router_rd_agt_top::end_of_elaboration(uvm_phase phase);
+   uvm_top.print_topology;
+endfunction*/
+
+/*task router_rd_agt_top::run_phase(uvm_phase phase);
+   uvm_top.print_topology;
+endtask*/
+
+
+__________________________________________rd_agt_config____________________________________________
+
+
+class router_rd_agent_config extends uvm_object;
+   `uvm_object_utils(router_rd_agent_config)
+
+   uvm_active_passive_enum is_active;
+
+   extern function new(string name="router_rd_agent_config");
+endclass
+
+  function router_rd_agent_config::new(string name="router_rd_agent_config");
+    super.new(name);
+  endfunction
+
+
+-------------------------------------------------env-----------------------------------------------
+
+
+________________________________________________router_tb___________________________________________
+
+
+
+class router_tb extends uvm_env;
+       `uvm_component_utils(router_tb)
+        
+           router_wr_agt_top wagt_top;
+           router_rd_agt_top ragt_top;
+           router_env_config m_cfg;
+          
+       extern function new(string name = "router_tb",uvm_component parent);
+       extern function void build_phase(uvm_phase phase); 
+endclass
+
+function router_tb::new(string name="router_tb",uvm_component parent);
+	super.new(name,parent);
+endfunction
+
+
+function void router_tb::build_phase(uvm_phase phase);
+       
+        if(!uvm_config_db #(router_env_config)::get(this,"","router_env_config",m_cfg))
+		`uvm_fatal(get_full_name,"cannot get() m_cfg from uvm_config_db. Have you set() it?")	
+	
+	if(m_cfg.has_wagent)
+        begin
+        //m_wr_agent_cfg=router_wr_agent_config::type_id::create("m_wr_agent_cfg");
+        //uvm_config_db #(router_wr_agent_config)::set(this,"*","router_wr_agent_config",env_cfg.m_wr_agent_cfg);
+	wagt_top=router_wr_agt_top::type_id::create("wagt_top",this);
+        end
+        
+        if(m_cfg.has_ragent)
+        begin
+        //m_rd_agent_cfg=router_rd_agent_config::type_id::create("m_rd_agent_cfg");
+        //uvm_config_db #(router_rd_agent_config)::set(this,"*","router_rd_agent_config",env_cfg.m_rd_agent_cfg);
+        ragt_top=router_rd_agt_top::type_id::create("ragt_top",this);
+        end
+    super.build_phase(phase);
+endfunction                 
+
+
+___________________________________________________router_env_config_____________________________________
+
+
+class router_env_config extends uvm_object;
+
+
+bit has_wagent = 1;
+bit has_ragent = 1;
+int no_of_write_agent=1;
+int no_of_read_agents=3;
+
+  router_wr_agent_config wr_agt_cfg[];
+  router_rd_agent_config rd_agt_cfg[];
+
+`uvm_object_utils(router_env_config)
+extern function new(string name = "router_env_config");
+
+endclass: router_env_config
+
+function router_env_config::new(string name = "router_env_config");
+  super.new(name);
+endfunction
+
+
+--------------------------------------------------test---------------------------------------------
+
+_________________________________________________________test_______________________________________
+
+
+class router_test extends uvm_test;
+    `uvm_component_utils(router_test)
+       router_tb router_envh;
+         //int no_of_rdagents=3;
+      router_env_config e_cfg;
+      router_wr_agent_config wcfg[];
+      router_rd_agent_config rcfg[];
+
+
+      bit has_ragent=1;
+      bit has_wagent=1;
+      int  no_of_read_agents=3;
+      int  no_of_write_agent=1;
+        extern function new(string name = "router_test" , uvm_component parent);
+        extern function void config_router();
+	extern function void build_phase(uvm_phase phase);
+        extern task run_phase(uvm_phase phase);
+endclass
+
+function router_test::new(string name = "router_test" , uvm_component parent);
+	super.new(name,parent);
+endfunction
+
+
+function void router_test::config_router();
+
+   if(has_wagent)
+         begin
+           wcfg=new[no_of_write_agent];
+           foreach(wcfg[i])
+               begin
+                  wcfg[i]=router_wr_agent_config::type_id::create($sformatf("wcfg[%0d]",i));
+                  wcfg[i].is_active=UVM_ACTIVE;
+                  e_cfg.wr_agt_cfg[i]=wcfg[i];
+               end
+        end
+     
+    if(has_ragent)
+         begin
+           rcfg=new[no_of_read_agents];
+           foreach(rcfg[i])
+               begin
+                  rcfg[i]=router_rd_agent_config::type_id::create($sformatf("rcfg[%0d]",i));
+                  rcfg[i].is_active=UVM_ACTIVE;
+                  e_cfg.rd_agt_cfg[i]=rcfg[i];
+               end
+          end
+     
+    e_cfg.has_ragent=has_ragent;
+    e_cfg.has_wagent=has_wagent;
+    e_cfg.no_of_read_agents=no_of_read_agents;
+    e_cfg.no_of_write_agent=no_of_write_agent;
+endfunction
+
+
+function void router_test::build_phase(uvm_phase phase);
+      
+        super.build_phase(phase);
+        e_cfg=router_env_config::type_id::create("e_cfg");
+        if(has_wagent)
+           begin
+	     e_cfg.wr_agt_cfg=new[no_of_write_agent];
+           end
+         
+        if(has_ragent)
+           begin
+	     e_cfg.rd_agt_cfg=new[no_of_read_agents];
+           end
+	config_router();
+        uvm_config_db #(router_env_config)::set(this,"*","router_env_config",e_cfg);
+	router_envh=router_tb::type_id::create("router_envh",this);
+endfunction
+
+task router_test::run_phase(uvm_phase phase);
+ uvm_top.print_topology;
+endtask
+
+
+__________________________________________________________test_pkg______________________________________
+
+
+package router_test_pkg;
+
+
+//import uvm_pkg.sv
+	import uvm_pkg::*;
+//include uvm_macros.sv
+	`include "uvm_macros.svh"
+
+`include "write_xtn.sv"
+`include "router_wr_agent_config.sv"
+`include "router_rd_agent_config.sv"
+`include "router_env_config.sv"
+`include "router_wr_driver.sv"
+`include "router_wr_monitor.sv"
+`include "router_wr_sequencer.sv"
+`include "router_wr_agent.sv"
+`include "router_wr_agt_top.sv"
+//`include "router_wr_seqs.sv"
+
+`include "read_xtn.sv"
+`include "router_rd_monitor.sv"
+`include "router_rd_sequencer.sv"
+//`include "router_rd_seqs.sv"
+`include "router_rd_driver.sv"
+`include "router_rd_agent.sv"
+`include "router_rd_agt_top.sv"
+
+//`include "router_virtual_sequencer.sv"
+//`include "router_virtual_seqs.sv"
+//`include "router_scoreboard.sv"
+
+`include "router_tb.sv"
+
+
+`include "router_test.sv"
+endpackage
+
+
+-----------------------------------------top------------------------------------------------------
+
+
+module top;
+  
+
+	// import ram_test_pkg
+   
+	import router_test_pkg::*;
+
+	// import the UVM package
+	import uvm_pkg::*; 
+
+	// include the uvm_macros.svh
+	`include "uvm_macros.svh"
+
+
+ 
+  // Within initial block 
+     // Call run_test("ram_random_test")
+	initial
+		begin
+			run_test("router_test");
+		end
+
+     
+endmodule : top
+
+
+-------------------------------------------------makefile-------------------------------------------
+
+
+#Makefile for UVM Testbench - Lab 05
+
+# SIMULATOR = Questa for Mentor's Questasim
+# SIMULATOR = VCS for Synopsys's VCS
+
+SIMULATOR = VCS
+
+
+
+RTL= ../rtl/*
+work= work #library name
+SVTB1= ../tb/top.sv
+INC = +incdir+../tb +incdir+../test +incdir+../wr_agt_top +incdir+../rd_agt_top
+SVTB2 = ../test/router_test_pkg.sv
+VSIMOPT= -vopt -voptargs=+acc 
+VSIMCOV= -coverage -sva 
+VSIMBATCH1= -c -do  " log -r /* ;coverage save -onexit mem_cov1;run -all; exit"
+VSIMBATCH2= -c -do  " log -r /* ;coverage save -onexit mem_cov2;run -all; exit"
+VSIMBATCH3= -c -do  " log -r /* ;coverage save -onexit mem_cov3;run -all; exit"
+VSIMBATCH4= -c -do  " log -r /* ;coverage save -onexit mem_cov4;run -all; exit"
+
+
+help:
+	@echo =============================================================================================================
+	@echo "! USAGE   	--  make target                             											!"
+	@echo "! clean   	=>  clean the earlier log and intermediate files.       								!"
+	@echo "! sv_cmp    	=>  Create library and compile the code.                   								!"
+	@echo "! run_test	=>  clean, compile & run the simulation for ram_base_test in batch mode.		!" 
+	@echo ====================================================================================================================
+
+clean : clean_$(SIMULATOR)
+sv_cmp : sv_cmp_$(SIMULATOR)
+run_test : run_test_$(SIMULATOR)
+
+# ----------------------------- Start of Definitions for Mentor's Questa Specific Targets -------------------------------#
+
+sv_cmp_Questa:
+	vlib $(work)
+	vmap work $(work)
+	vlog -work $(work) $(INC) $(SVTB2) $(SVTB1) 	
+	
+run_test_Questa: clean sv_cmp
+	vsim  $(VSIMOPT) $(VSIMCOV) $(VSIMBATCH1)  -l test1.log  -sv_seed random  work.top +UVM_TESTNAME=router_test
+	
+clean_Questa: 
+	rm -rf transcript* *log* fcover* covhtml* mem_cov* *.wlf modelsim.ini work
+	clear
+
+# ----------------------------- End of Definitions for Mentor's Questa Specific Targets -------------------------------#
+
+# ----------------------------- Start of Definitions for Synopsys's VCS Specific Targets -------------------------------#
+
+sv_cmp_VCS:
+	vcs -l vcs.log -timescale=1ns/1ps -sverilog -ntb_opts uvm -debug_access+all -full64 $(INC) $(SVTB2) $(SVTB1)
+	      
+run_test_VCS:	clean  sv_cmp_VCS
+	./simv -a test.log +ntb_random_seed_automatic +UVM_TESTNAME=router_test
+	
+clean_VCS:
+	rm -rf simv* csrc* *.tmp *.vdb *.key *.log *hdrs.h urgReport* novas* vdCov*
+	clear
+
+# ----------------------------- END of Definitions for Synopsys's VCS Specific Targets -------------------------------#
+
